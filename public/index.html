@@ -32,6 +32,36 @@
   #modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; padding:16px; }
   #modal .box { background:var(--card); border-radius:10px; width:100%; max-width:860px; max-height:90vh; display:flex; flex-direction:column; padding:16px; gap:10px; }
   #m-body { flex:1; min-height:50vh; font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+  .robots { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .rcard { text-align:center; border:1px solid var(--line); border-radius:10px; padding:8px 4px 10px; background:#fafbfc; transition:background .3s,border-color .3s; }
+  .rcard.work { background:#eff6ff; border-color:#93c5fd; }
+  .rcard .nm { font-weight:600; font-size:13px; }
+  .rcard .st { font-size:12px; color:var(--muted); min-height:18px; }
+  .rcard svg { width:100%; max-width:150px; height:auto; }
+  .fc { fill:var(--c); }
+  .robot { transition:opacity .4s; }
+  .robot.sleep { opacity:.7; }
+  .robot .eo { display:none; } .robot .ec { display:inline; }
+  .robot.work .eo { display:inline; } .robot.work .ec { display:none; }
+  .robot .zzz { display:inline; } .robot.work .zzz { display:none; }
+  .robot .ant { fill:#94a3b8; }
+  .robot.work .ant { fill:#22c55e; animation:blink .8s infinite; }
+  .robot .head { transform-box:view-box; transform-origin:60px 70px; transform:rotate(9deg); transition:transform .5s; }
+  .robot.work .head { transform:rotate(0deg); animation:nod 1.6s ease-in-out infinite; }
+  .robot .a1, .robot .a2 { transform-box:fill-box; }
+  .robot.work .a1 { animation:typing .28s ease-in-out infinite alternate; }
+  .robot.work .a2 { animation:typing .28s ease-in-out .14s infinite alternate; }
+  .robot .screen { fill:#334155; }
+  .robot.work .screen { animation:glow 1s ease-in-out infinite alternate; }
+  .z { font:700 11px system-ui,sans-serif; fill:#64748b; opacity:0; animation:zf 2.4s ease-in infinite; }
+  .z2 { animation-delay:.8s; } .z3 { animation-delay:1.6s; }
+  @keyframes blink { 50% { opacity:.25; } }
+  @keyframes nod { 50% { transform:rotate(-2deg); } }
+  @keyframes typing { to { transform:translateY(-4px); } }
+  @keyframes glow { to { fill:#38bdf8; } }
+  @keyframes zf { 0% { opacity:0; transform:translate(0,6px); } 30% { opacity:1; } 100% { opacity:0; transform:translate(8px,-10px); } }
+  @media (prefers-reduced-motion:reduce) { .robot * { animation:none !important; } .z { opacity:1; } }
+  @media (max-width:520px) { .robots { gap:6px; } }
 </style>
 </head>
 <body>
@@ -41,13 +71,14 @@
   <section>
     <h2>Settings</h2>
     <label><input type="checkbox" id="mock"> Test mode (fake AI output, free, no API key needed)</label>
+    <label><input type="checkbox" id="eco"> Economy mode (recommended): cheaper research, light editing, fewer tokens</label>
     <label for="key">API key (stored only in this browser)</label>
     <input type="password" id="key" placeholder="sk-...">
     <label for="base">API base URL (DeepSeek default shown; for another provider paste its base URL from their docs)</label>
     <input type="text" id="base" placeholder="https://api.deepseek.com">
-    <label for="m1">Model for Agent 1 - Research</label>
+    <label for="m1">Model for Agent 1 - Research (only used when Economy mode is OFF)</label>
     <input type="text" id="m1" placeholder="deepseek-reasoner">
-    <label for="m2">Model for Agents 2 and 3 - Writer and Editor</label>
+    <label for="m2">Model for Agents 2 and 3 - Writer and Editor (also Agent 1 in Economy mode)</label>
     <input type="text" id="m2" placeholder="deepseek-chat">
     <p class="muted">To go real: untick Test mode, fill the key (and base URL and model names if not using DeepSeek). Fields save automatically.</p>
   </section>
@@ -58,11 +89,21 @@
     <input type="text" id="title" placeholder="e.g. Latest open-source reasoning models">
     <label for="src">Source text (optional, paste a news article or notes so the AI has real facts to use)</label>
     <textarea id="src" rows="5"></textarea>
+    <label for="urls">Source web pages (optional, one URL per line)</label>
+    <textarea id="urls" rows="2" placeholder="https://..."></textarea>
+    <p class="muted" style="margin:4px 0 0">The AI cannot open web pages. Paste the page text in the box above and list its address here, so it is credited at the bottom of the article.</p>
     <div class="row" style="margin-top:12px">
       <button id="go">Write article</button>
       <span class="muted">Runs 3 agents in order: Research, Writer, Editor. Keep this tab open.</span>
     </div>
     <pre id="log"></pre>
+  </section>
+
+  <section>
+    <h2>Agents</h2>
+    <div class="robots" id="robots"></div>
+    <p class="muted" id="agent-status" style="text-align:center;margin:10px 0 4px"></p>
+    <div id="cur-sources" style="text-align:center"></div>
   </section>
 
   <section>
@@ -87,10 +128,12 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { alert('Browser storage is full or blocked: ' + e.message); } }
 };
 const $ = (id) => document.getElementById(id);
-let settings = Object.assign({ key: '', mock: true, base: 'https://api.deepseek.com', m1: 'deepseek-reasoner', m2: 'deepseek-chat' }, store.get('settings', {}));
+let settings = Object.assign({ key: '', mock: true, eco: true, base: 'https://api.deepseek.com', m1: 'deepseek-reasoner', m2: 'deepseek-chat' }, store.get('settings', {}));
 const persist = () => store.set('settings', settings);
 $('mock').checked = settings.mock;
 $('mock').onchange = () => { settings.mock = $('mock').checked; persist(); };
+$('eco').checked = settings.eco;
+$('eco').onchange = () => { settings.eco = $('eco').checked; persist(); };
 [['key','key'],['base','base'],['m1','m1'],['m2','m2']].forEach(([id, k]) => {
   $(id).value = settings[k];
   $(id).oninput = () => { settings[k] = $(id).value.trim(); persist(); };
@@ -101,7 +144,7 @@ const save = () => store.set('jobs', jobs);
 // ====================== Prompts ======================
 const today = () => new Date().toISOString().slice(0, 10);
 
-const researchSystem = () => `
+const researchSystem = (eco) => `
 Kamu adalah Agen Riset & Analisis AI senior untuk blog teknologi Indonesia yang fokus pada AI dan AGI. Tanggal hari ini: ${today()}.
 TUGAS: Bedah satu topik AI/AGI menjadi Laporan Riset yang akurat dan kritis untuk penulis.
 ATURAN KERAS:
@@ -120,9 +163,9 @@ SKEMA:
 "limitations_and_unknowns":[""],"angles":[""],"recommended_angle":"",
 "outline":[{"h2":"","points":[""]}],
 "seo":{"primary_keyword":"","secondary_keywords":[""],"search_intent":""},
-"title_options":[""]}`.trim();
+"title_options":[""]}${eco ? '\nBATASAN HEMAT: key_facts maks 6, technical_breakdown maks 4, fact_check maks 4, angles 3, outline maks 6 bagian. Setiap isian ringkas (maks 2 kalimat). Jangan menulis teks di luar JSON.' : ''}`.trim();
 
-const researchUser = (j) => `TOPIK: ${j.title}\n\nMATERI SUMBER DARI PENGGUNA:\n${j.source || '(tidak ada, andalkan pengetahuan mapan dan beri confidence rendah pada hal yang tidak pasti)'}\n\nBuat Laporan Riset sesuai skema. Keluarkan JSON saja.`;
+const researchUser = (j) => `TOPIK: ${j.title}\n\nMATERI SUMBER DARI PENGGUNA:\n${j.source || '(tidak ada, andalkan pengetahuan mapan dan beri confidence rendah pada hal yang tidak pasti)'}\n${(j.sources && j.sources.length) ? '\nURL SUMBER (hanya untuk atribusi; kamu tidak bisa membukanya, hanya teks di atas yang tersedia):\n' + j.sources.map((u) => '- ' + u).join('\n') + '\n' : ''}\nBuat Laporan Riset sesuai skema. Keluarkan JSON saja.`;
 
 const writerSystem = `
 Kamu adalah tech-blogger Indonesia berpengalaman yang menulis tentang AI dan AGI. Gaya kasual-profesional: seperti menjelaskan ke teman cerdas di warung kopi, tapi berbobot.
@@ -131,7 +174,7 @@ STRUKTUR: (1) satu H1 tidak clickbait; (2) pembuka 2-3 paragraf dengan hook konk
 ATURAN: 1400-1800 kata, minimal 1200. HANYA pakai fakta dari Laporan Riset, jangan tambah angka/kutipan/nama baru. Klaim confidence "low" wajib berbahasa hati-hati. Jangan menyatakan AGI sudah tercapai.
 OUTPUT: HANYA artikel Markdown diawali "# Judul", tanpa pengantar atau code fence.`.trim();
 
-const writerUser = (r) => `LAPORAN RISET (JSON):\n${JSON.stringify(r, null, 2)}\n\nTulis artikelnya sekarang.`;
+const writerUser = (r) => `LAPORAN RISET (JSON):\n${JSON.stringify({ ...r, angles: undefined })}\n\nTulis artikelnya sekarang.`;
 const expandUser = (d, n) => `Draf berikut baru ${n} kata, terlalu pendek. Kembangkan jadi minimal 1400 kata dengan memperdalam penjelasan teknis, analogi, dan implikasi, TANPA menambah fakta baru. Kembalikan artikel lengkap Markdown saja.\n\nDRAF:\n${d}`;
 
 const editorSystem = `
@@ -145,7 +188,14 @@ FORMAT OUTPUT (persis, tanpa teks lain):
 (artikel final Markdown, diawali "# Judul")
 </article>`.trim();
 
-const editorUser = (d, seo) => `SARAN SEO DARI RISET:\n${JSON.stringify(seo ?? {}, null, 2)}\n\nDRAF ARTIKEL:\n${d}`;
+const editorUser = (d, seo) => `SARAN SEO DARI RISET:\n${JSON.stringify(seo ?? {})}\n\nDRAF ARTIKEL:\n${d}`;
+
+// Editor hemat: tidak menulis ulang seluruh artikel, hanya meta + FAQ + perbaikan kalimat kaku.
+const editorLiteSystem = `
+Kamu adalah Editor Senior sekaligus Pakar SEO untuk blog AI/AGI berbahasa Indonesia. Kamu TIDAK menulis ulang artikel. Kamu hanya mengembalikan JSON berisi meta, FAQ, dan perbaikan kalimat.
+TUGAS: (1) Temukan maksimal 10 kalimat yang kaku/bertele-tele/terjemahan harfiah dan beri versi yang lebih natural. Isi "find" HARUS salinan PERSIS (huruf per huruf) dari satu kalimat atau potongan kalimat dalam draf, minimal 6 kata. JANGAN mengubah fakta, angka, atau klaim. (2) Bila keyword utama belum ada di H1 atau paragraf pertama, perbaiki lewat fixes secara natural. (3) Buat FAQ 3 tanya-jawab singkat, jawabannya HANYA dari isi artikel. (4) meta_title maks 60 karakter; meta_description 140-160 karakter berisi keyword utama; slug huruf kecil ASCII dengan tanda hubung maks 70 karakter; 5-8 keywords, keyword utama pertama.
+FORMAT: HANYA satu objek JSON valid, tanpa markdown fence:
+{"title":"","meta_title":"","meta_description":"","slug":"","keywords":[""],"faq_markdown":"## FAQ\n\n**Pertanyaan?**\nJawaban.\n\n**Pertanyaan?**\nJawaban.","fixes":[{"find":"","replace":""}]}`.trim();
 
 // ====================== LLM call ======================
 const wc = (s) => s.split(/\s+/).filter(Boolean).length;
@@ -164,6 +214,11 @@ function mockLLM(model, system, user) {
       seo: { primary_keyword: 'tes mock ai', secondary_keywords: ['mock'], search_intent: 'informasional' },
       title_options: ['Artikel Tes Mock AI'] });
   }
+  if (system.includes('faq_markdown')) {
+    return JSON.stringify({ title: 'Artikel Tes Mock AI', meta_title: 'Artikel Tes Mock AI', slug: 'artikel-tes-mock-ai',
+      meta_description: 'Artikel tes dari mode mock untuk memastikan alur tiga agen berjalan dengan benar.',
+      keywords: ['tes mock ai', 'mock'], faq_markdown: '## FAQ\n\n**Apa ini?**\nIni artikel tes.', fixes: [] });
+  }
   if (system.includes('<meta>')) {
     const draft = user.split('DRAF ARTIKEL:\n')[1] || `# Artikel Tes Mock AI\n\n${body}`;
     const meta = { title: 'Artikel Tes Mock AI', meta_title: 'Artikel Tes Mock AI', slug: 'artikel-tes-mock-ai',
@@ -174,15 +229,17 @@ function mockLLM(model, system, user) {
   return `# Artikel Tes Mock AI\n\n${body}`;
 }
 
-async function llm({ model, system, user, temperature }) {
-  if (settings.mock) { await new Promise((r) => setTimeout(r, 600)); return mockLLM(model, system, user); }
+let currentJob = null;
+async function llm({ model, system, user, temperature, maxTokens }) {
+  if (settings.mock) { await new Promise((r) => setTimeout(r, 2000)); return mockLLM(model, system, user); }
   if (!settings.key) throw new Error('API key belum diisi (atau aktifkan Test mode).');
   const isResearch = model === 'deepseek-reasoner';
-  const realModel = (isResearch ? settings.m1 : settings.m2) || model;
+  const reasoning = isResearch && !settings.eco; // hanya mode non-hemat yang memakai model "reasoning" (mahal)
+  const realModel = (reasoning ? settings.m1 : settings.m2) || model;
   const url = (settings.base || 'https://api.deepseek.com').replace(/\/+$/, '') + '/chat/completions';
-  const body = { model: realModel, max_tokens: 8192, stream: false,
+  const body = { model: realModel, max_tokens: maxTokens || 8192, stream: false,
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
-  if (!isResearch && temperature !== undefined) body.temperature = temperature;
+  if (!reasoning) body.temperature = temperature ?? 0.3;
   let res;
   try {
     res = await fetch(url, {
@@ -192,6 +249,7 @@ async function llm({ model, system, user, temperature }) {
   }
   if (!res.ok) throw new Error(`API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const json = await res.json();
+  if (currentJob) currentJob.tokens = (currentJob.tokens || 0) + (json.usage?.total_tokens || 0);
   const choice = json.choices?.[0];
   const text = choice?.message?.content ?? '';
   if (!text.trim()) throw new Error('Respons kosong dari API (finish_reason=' + choice?.finish_reason + ')');
@@ -209,47 +267,145 @@ function extractJson(raw) {
 const slugify = (s) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70).replace(/-+$/g, '');
 
+// ====================== Robots ======================
+const AGENTS = [
+  { name: 'Agent 1', role: 'Researcher', color: '#6366f1', doing: 'Researching...' },
+  { name: 'Agent 2', role: 'Writer', color: '#f59e0b', doing: 'Writing...' },
+  { name: 'Agent 3', role: 'Editor', color: '#10b981', doing: 'Editing...' },
+];
+const ROBOT_SVG = `<svg class="robot sleep" viewBox="0 0 120 130" aria-hidden="true">
+  <rect x="28" y="50" width="64" height="54" rx="9" fill="#cbd5e1"/>
+  <rect class="fc" x="38" y="68" width="44" height="36" rx="9"/>
+  <circle cx="60" cy="77" r="3" fill="#fff" opacity=".8"/>
+  <g class="head">
+    <line x1="60" y1="21" x2="60" y2="32" stroke="#64748b" stroke-width="3"/>
+    <circle class="ant" cx="60" cy="18" r="4"/>
+    <rect class="fc" x="35" y="32" width="50" height="38" rx="10"/>
+    <rect x="41" y="39" width="38" height="24" rx="8" fill="#0f172a"/>
+    <g class="eo"><circle cx="52" cy="51" r="4.5" fill="#7dd3fc"/><circle cx="68" cy="51" r="4.5" fill="#7dd3fc"/></g>
+    <g class="ec"><path d="M47 52 q5 4 10 0" stroke="#7dd3fc" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M63 52 q5 4 10 0" stroke="#7dd3fc" stroke-width="2.5" fill="none" stroke-linecap="round"/></g>
+  </g>
+  <rect x="6" y="100" width="108" height="8" rx="3" fill="#94a3b8"/>
+  <rect x="14" y="108" width="6" height="20" fill="#94a3b8"/><rect x="100" y="108" width="6" height="20" fill="#94a3b8"/>
+  <rect x="40" y="86" width="40" height="14" rx="2" fill="#475569"/>
+  <rect class="screen" x="43" y="88" width="34" height="9" rx="1"/>
+  <rect class="fc a1" x="28" y="86" width="16" height="7" rx="3.5"/>
+  <rect class="fc a2" x="76" y="86" width="16" height="7" rx="3.5"/>
+  <g class="zzz"><text class="z z1" x="84" y="34">z</text><text class="z z2" x="94" y="24">z</text><text class="z z3" x="103" y="13">Z</text></g>
+</svg>`;
+
+(function buildRobots() {
+  const box = $('robots');
+  AGENTS.forEach((a) => {
+    const c = document.createElement('div'); c.className = 'rcard'; c.style.setProperty('--c', a.color);
+    c.innerHTML = ROBOT_SVG + `<div class="nm">${a.name}: ${a.role}</div><div class="st"></div>`;
+    box.appendChild(c);
+  });
+})();
+
+const ACTIVE = { Researching: 0, Drafting: 1, Editing: 2 };
+function updateRobots(status) {
+  const active = ACTIVE[status] ?? -1;
+  document.querySelectorAll('.rcard').forEach((c, i) => {
+    const on = i === active;
+    c.classList.toggle('work', on);
+    c.querySelector('svg').setAttribute('class', 'robot ' + (on ? 'work' : 'sleep'));
+    c.querySelector('.st').textContent = on ? AGENTS[i].doing : 'Zzz...';
+  });
+  $('agent-status').textContent = active >= 0
+    ? `${AGENTS[active].name} (${AGENTS[active].role}) is working. The other two are asleep.`
+    : status === 'Completed' ? 'Done! All agents are resting.'
+    : status === 'Failed' ? 'Something failed. See the error in the Articles list.'
+    : 'All agents are asleep. Start an article to wake them up.';
+}
+
+// ====================== Sources ======================
+function parseUrls(text) {
+  const found = (text.match(/https?:\/\/[^\s<>"'\)\]]+/g) || []).map((u) => u.replace(/[.,;]+$/, ''));
+  const out = [];
+  for (const u of found) {
+    try { const x = new URL(u); if (/^https?:$/.test(x.protocol) && !out.includes(x.href)) out.push(x.href); } catch {}
+  }
+  return out;
+}
+function sourceList(urls) {
+  const wrap = document.createElement('div'); wrap.className = 'muted';
+  if (!urls || !urls.length) { wrap.textContent = 'Sources: none provided. The agents used only the topic and their own background knowledge.'; return wrap; }
+  wrap.append('Sources you provided: ');
+  urls.forEach((u, i) => {
+    if (i) wrap.append(' | ');
+    const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.textContent = u.replace(/^https?:\/\//, '').slice(0, 60); wrap.appendChild(a);
+  });
+  return wrap;
+}
+const showSources = (j) => { const box = $('cur-sources'); box.replaceChildren(); if (j) box.appendChild(sourceList(j.sources)); };
+
 // ====================== Orchestrator ======================
 const log = (msg) => { const el = $('log'); el.style.display = 'block'; el.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`; el.scrollTop = el.scrollHeight; };
-const setStatus = (j, status) => { j.status = status; save(); render(); };
+const setStatus = (j, status) => { j.status = status; save(); render(); updateRobots(status); };
+
+function buildFinal(j, meta, article) {
+  if (j.sources && j.sources.length) article += '\n\n## Sources\n\n' + j.sources.map((u) => `- [${u}](${u})`).join('\n');
+  const title = (meta.title || article.match(/^#\s+(.+)$/m)?.[1] || j.title).trim();
+  j.final = { title, slug: slugify(meta.slug || title) || 'artikel', meta_title: (meta.meta_title || title).slice(0, 70),
+    meta_description: (meta.meta_description || '').slice(0, 170), keywords: meta.keywords || [], content: article, words: wc(article) };
+  save();
+}
 
 async function runJob(j) {
+  currentJob = j; showSources(j);
+  const eco = settings.eco;
   try {
-    // Agen 1
+    // Agen 1: Riset
     if (!j.research) {
-      setStatus(j, 'Researching'); log('Agent 1 (Research / deepseek-reasoner) started...');
-      const raw = await llm({ model: 'deepseek-reasoner', system: researchSystem(), user: researchUser(j) });
+      setStatus(j, 'Researching'); log(`Agent 1 (Research${eco ? ', economy' : ''}) started...`);
+      const raw = await llm({ model: 'deepseek-reasoner', system: researchSystem(eco), user: researchUser(j), maxTokens: eco ? 4000 : 8192 });
       const report = extractJson(raw);
       if (!Array.isArray(report.key_facts) || !report.key_facts.length) throw new Error('Laporan riset tidak valid: key_facts kosong');
-      j.research = report; save(); log('Agent 1 done.');
+      j.research = report; save(); log('Agent 1 done. Tokens so far: ' + (j.tokens || 0));
     }
-    // Agen 2
+    // Agen 2: Penulis
     if (!j.draft) {
-      setStatus(j, 'Drafting'); log('Agent 2 (Writer / deepseek-chat) started...');
-      let draft = (await llm({ model: 'deepseek-chat', system: writerSystem, user: writerUser(j.research), temperature: 0.8 })).trim();
-      if (wc(draft) < 1100) {
-        log(`Draft only ${wc(draft)} words, expanding...`);
-        draft = (await llm({ model: 'deepseek-chat', system: writerSystem, user: expandUser(draft, wc(draft)), temperature: 0.7 })).trim();
+      setStatus(j, 'Drafting'); log('Agent 2 (Writer) started...');
+      let draft = (await llm({ model: 'deepseek-chat', system: writerSystem, user: writerUser(j.research), temperature: 0.8, maxTokens: 6500 })).trim();
+      const minWords = eco ? 800 : 1100;
+      if (wc(draft) < minWords) {
+        log(`Draft only ${wc(draft)} words, expanding once...`);
+        draft = (await llm({ model: 'deepseek-chat', system: writerSystem, user: expandUser(draft, wc(draft)), temperature: 0.7, maxTokens: 6500 })).trim();
       }
-      if (wc(draft) < 800) throw new Error(`Draf terlalu pendek (${wc(draft)} kata)`);
-      j.draft = draft; save(); log('Agent 2 done (' + wc(draft) + ' words).');
+      if (wc(draft) < 700) throw new Error(`Draf terlalu pendek (${wc(draft)} kata)`);
+      j.draft = draft; save(); log('Agent 2 done (' + wc(draft) + ' words). Tokens so far: ' + (j.tokens || 0));
     }
-    // Agen 3
+    // Agen 3: Editor + SEO
     if (!j.final) {
-      setStatus(j, 'Editing'); log('Agent 3 (Editor + SEO / deepseek-chat) started...');
-      const raw = await llm({ model: 'deepseek-chat', system: editorSystem, user: editorUser(j.draft, j.research.seo), temperature: 0.4 });
-      const m = raw.match(/<meta>([\s\S]*?)<\/meta>/i), a = raw.match(/<article>([\s\S]*?)<\/article>/i);
-      if (!m || !a) throw new Error('Format output Editor salah (blok <meta>/<article> tidak lengkap)');
-      const meta = extractJson(m[1]); const article = a[1].trim();
-      const title = (meta.title || article.match(/^#\s+(.+)$/m)?.[1] || j.title).trim();
-      j.final = { title, slug: slugify(meta.slug || title) || 'artikel', meta_title: (meta.meta_title || title).slice(0, 70),
-        meta_description: (meta.meta_description || '').slice(0, 170), keywords: meta.keywords || [], content: article, words: wc(article) };
-      save(); log('Agent 3 done. Article ready (' + j.final.words + ' words).');
+      setStatus(j, 'Editing');
+      if (eco) {
+        log('Agent 3 (Editor, light mode) started...');
+        const raw = await llm({ model: 'deepseek-chat', system: editorLiteSystem, user: editorUser(j.draft, j.research.seo), temperature: 0.3, maxTokens: 2500 });
+        const meta = extractJson(raw);
+        let article = j.draft, applied = 0;
+        for (const f of (Array.isArray(meta.fixes) ? meta.fixes : []).slice(0, 12)) {
+          if (typeof f?.find === 'string' && typeof f?.replace === 'string' && f.find.length > 15 && article.includes(f.find)) {
+            article = article.replace(f.find, () => f.replace); applied++;
+          }
+        }
+        if (meta.faq_markdown && !/^##\s*FAQ/im.test(article)) article += '\n\n' + String(meta.faq_markdown).trim();
+        log(`Light edit: ${applied} sentence fixes applied.`);
+        buildFinal(j, meta, article);
+      } else {
+        log('Agent 3 (Editor + SEO, full rewrite) started...');
+        const raw = await llm({ model: 'deepseek-chat', system: editorSystem, user: editorUser(j.draft, j.research.seo), temperature: 0.4, maxTokens: 8192 });
+        const m = raw.match(/<meta>([\s\S]*?)<\/meta>/i), a = raw.match(/<article>([\s\S]*?)<\/article>/i);
+        if (!m || !a) throw new Error('Format output Editor salah (blok <meta>/<article> tidak lengkap)');
+        buildFinal(j, extractJson(m[1]), a[1].trim());
+      }
+      log(`Agent 3 done. Article ready (${j.final.words} words). Total tokens: ${(j.tokens || 0).toLocaleString()}`);
     }
     j.error = null; setStatus(j, 'Completed');
   } catch (e) {
     j.error = e.message; setStatus(j, 'Failed'); log('FAILED: ' + e.message);
-  }
+  } finally { currentJob = null; }
 }
 
 // ====================== UI ======================
@@ -264,8 +420,8 @@ function render() {
     const tag = document.createElement('span'); tag.className = 'tag ' + j.status; tag.textContent = j.status;
     top.append(t, tag);
     const info = document.createElement('div'); info.className = 'muted';
-    info.textContent = new Date(j.created).toLocaleString() + (j.final ? ` | ${j.final.words} words` : '');
-    d.append(top, info);
+    info.textContent = new Date(j.created).toLocaleString() + (j.final ? ` | ${j.final.words} words` : '') + (j.tokens ? ` | ${j.tokens.toLocaleString()} tokens` : '');
+    d.append(top, info, sourceList(j.sources));
     if (j.error) { const e = document.createElement('div'); e.className = 'err'; e.textContent = j.error; d.appendChild(e); }
     const acts = document.createElement('div'); acts.className = 'row'; acts.style.marginTop = '8px';
     const btn = (label, fn, cls = 'sec') => { const b = document.createElement('button'); b.className = cls; b.textContent = label; b.onclick = fn; acts.appendChild(b); };
@@ -293,15 +449,16 @@ $('m-copy').onclick = async () => { await navigator.clipboard.writeText($('m-bod
 $('go').onclick = async () => {
   const title = $('title').value.trim();
   if (!title) return alert('Please type a topic.');
-  const j = { id: Date.now().toString(36), title, source: $('src').value.trim(), status: 'Pending', created: Date.now(), research: null, draft: null, final: null, error: null };
+  const j = { id: Date.now().toString(36), title, source: $('src').value.trim(), sources: parseUrls($('urls').value + '\n' + $('src').value), tokens: 0, status: 'Pending', created: Date.now(), research: null, draft: null, final: null, error: null };
   jobs.unshift(j); save(); render();
   $('log').textContent = ''; $('go').disabled = true; $('go').textContent = 'Working...';
   await runJob(j);
   $('go').disabled = false; $('go').textContent = 'Write article';
-  if (j.status === 'Completed') { $('title').value = ''; $('src').value = ''; }
+  if (j.status === 'Completed') { $('title').value = ''; $('src').value = ''; $('urls').value = ''; }
 };
 
 render();
+updateRobots('Pending');
 </script>
 </body>
 </html>
