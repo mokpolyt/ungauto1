@@ -41,9 +41,15 @@
   <section>
     <h2>Settings</h2>
     <label><input type="checkbox" id="mock"> Test mode (fake AI output, free, no API key needed)</label>
-    <label for="key">DeepSeek API key (stored only in this browser)</label>
+    <label for="key">API key (stored only in this browser)</label>
     <input type="password" id="key" placeholder="sk-...">
-    <p class="muted">Turn test mode off and paste your key when you are ready for real articles.</p>
+    <label for="base">API base URL (DeepSeek default shown; for another provider paste its base URL from their docs)</label>
+    <input type="text" id="base" placeholder="https://api.deepseek.com">
+    <label for="m1">Model for Agent 1 - Research</label>
+    <input type="text" id="m1" placeholder="deepseek-reasoner">
+    <label for="m2">Model for Agents 2 and 3 - Writer and Editor</label>
+    <input type="text" id="m2" placeholder="deepseek-chat">
+    <p class="muted">To go real: untick Test mode, fill the key (and base URL and model names if not using DeepSeek). Fields save automatically.</p>
   </section>
 
   <section>
@@ -81,14 +87,16 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { alert('Browser storage is full or blocked: ' + e.message); } }
 };
 const $ = (id) => document.getElementById(id);
-let settings = store.get('settings', { key: '', mock: true });
+let settings = Object.assign({ key: '', mock: true, base: 'https://api.deepseek.com', m1: 'deepseek-reasoner', m2: 'deepseek-chat' }, store.get('settings', {}));
+const persist = () => store.set('settings', settings);
+$('mock').checked = settings.mock;
+$('mock').onchange = () => { settings.mock = $('mock').checked; persist(); };
+[['key','key'],['base','base'],['m1','m1'],['m2','m2']].forEach(([id, k]) => {
+  $(id).value = settings[k];
+  $(id).oninput = () => { settings[k] = $(id).value.trim(); persist(); };
+});
 let jobs = store.get('jobs', []);
 const save = () => store.set('jobs', jobs);
-
-$('mock').checked = settings.mock;
-$('key').value = settings.key;
-$('mock').onchange = () => { settings.mock = $('mock').checked; store.set('settings', settings); };
-$('key').onchange = () => { settings.key = $('key').value.trim(); store.set('settings', settings); };
 
 // ====================== Prompts ======================
 const today = () => new Date().toISOString().slice(0, 10);
@@ -168,22 +176,25 @@ function mockLLM(model, system, user) {
 
 async function llm({ model, system, user, temperature }) {
   if (settings.mock) { await new Promise((r) => setTimeout(r, 600)); return mockLLM(model, system, user); }
-  if (!settings.key) throw new Error('DeepSeek API key belum diisi (atau aktifkan Test mode).');
-  const body = { model, max_tokens: 8192, stream: false,
+  if (!settings.key) throw new Error('API key belum diisi (atau aktifkan Test mode).');
+  const isResearch = model === 'deepseek-reasoner';
+  const realModel = (isResearch ? settings.m1 : settings.m2) || model;
+  const url = (settings.base || 'https://api.deepseek.com').replace(/\/+$/, '') + '/chat/completions';
+  const body = { model: realModel, max_tokens: 8192, stream: false,
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
-  if (model === 'deepseek-chat' && temperature !== undefined) body.temperature = temperature;
+  if (!isResearch && temperature !== undefined) body.temperature = temperature;
   let res;
   try {
-    res = await fetch('https://api.deepseek.com/chat/completions', {
+    res = await fetch(url, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) });
   } catch (e) {
     throw new Error('Request gagal (bisa jaringan atau diblokir browser/CORS): ' + e.message);
   }
-  if (!res.ok) throw new Error(`DeepSeek HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`API HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const json = await res.json();
   const choice = json.choices?.[0];
   const text = choice?.message?.content ?? '';
-  if (!text.trim()) throw new Error('Respons kosong dari DeepSeek (finish_reason=' + choice?.finish_reason + ')');
+  if (!text.trim()) throw new Error('Respons kosong dari API (finish_reason=' + choice?.finish_reason + ')');
   if (choice.finish_reason === 'length') throw new Error('Output terpotong (terlalu panjang).');
   return text;
 }
