@@ -4,175 +4,293 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>AI Blog Dashboard</title>
+<title>AI Blog Writer</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --text:#1c2230; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --ok:#15803d; --bad:#b91c1c; }
   * { box-sizing:border-box; }
   body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
-  header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  header h1 { font-size:18px; margin:0; margin-right:auto; }
-  main { max-width:1000px; margin:20px auto; padding:0 16px; display:grid; gap:16px; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 20px; }
+  header h1 { font-size:18px; margin:0; }
+  main { max-width:900px; margin:20px auto; padding:0 16px; display:grid; gap:16px; }
   section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
   h2 { font-size:15px; margin:0 0 12px; }
-  input, textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; width:100%; }
+  label { display:block; font-size:13px; color:var(--muted); margin:8px 0 4px; }
+  input[type=text], input[type=password], textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; width:100%; }
+  textarea { resize:vertical; }
   button { font:inherit; padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; }
   button.sec { background:#eef1f6; color:var(--text); }
   button:disabled { opacity:.5; cursor:wait; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .row > input { flex:1; min-width:160px; }
-  table { width:100%; border-collapse:collapse; }
-  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { color:var(--muted); font-weight:500; font-size:13px; }
-  .tag { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; background:#eef1f6; }
-  .completed,.published { background:#dcfce7; color:var(--ok); }
-  .failed { background:#fee2e2; color:var(--bad); }
   .muted { color:var(--muted); font-size:13px; }
-  #msg { padding:10px 14px; border-radius:8px; display:none; }
-  #msg.ok { display:block; background:#dcfce7; color:var(--ok); }
-  #msg.err { display:block; background:#fee2e2; color:var(--bad); }
+  .tag { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; background:#eef1f6; }
+  .Completed { background:#dcfce7; color:var(--ok); }
+  .Failed { background:#fee2e2; color:var(--bad); }
+  .job { border-top:1px solid var(--line); padding:12px 0; }
+  .job:first-child { border-top:0; }
+  .err { color:var(--bad); font-size:13px; margin-top:4px; word-break:break-word; }
+  #log { font:12px/1.5 ui-monospace,Menlo,monospace; background:#0f172a; color:#cbd5e1; border-radius:8px; padding:10px; max-height:180px; overflow:auto; white-space:pre-wrap; display:none; }
   #modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; padding:16px; }
   #modal .box { background:var(--card); border-radius:10px; width:100%; max-width:860px; max-height:90vh; display:flex; flex-direction:column; padding:16px; gap:10px; }
-  #modal textarea { flex:1; min-height:50vh; font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+  #m-body { flex:1; min-height:50vh; font-family:ui-monospace,Menlo,monospace; font-size:13px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>AI Blog Dashboard</h1>
-  <input id="secret" type="password" placeholder="Your CRON_SECRET" style="max-width:240px">
-  <button id="save" class="sec">Connect</button>
-</header>
+<header><h1>AI Blog Writer</h1></header>
 
 <main>
-  <div id="msg"></div>
+  <section>
+    <h2>Settings</h2>
+    <label><input type="checkbox" id="mock"> Test mode (fake AI output, free, no API key needed)</label>
+    <label for="key">DeepSeek API key (stored only in this browser)</label>
+    <input type="password" id="key" placeholder="sk-...">
+    <p class="muted">Turn test mode off and paste your key when you are ready for real articles.</p>
+  </section>
 
   <section>
-    <h2>1. Add a topic</h2>
-    <div class="row">
-      <input id="t-title" placeholder="Topic, e.g. Latest open-source reasoning models">
-      <input id="t-url" placeholder="Source URL (optional)">
-      <button id="add">Add topic</button>
+    <h2>New article</h2>
+    <label for="title">Topic</label>
+    <input type="text" id="title" placeholder="e.g. Latest open-source reasoning models">
+    <label for="src">Source text (optional, paste a news article or notes so the AI has real facts to use)</label>
+    <textarea id="src" rows="5"></textarea>
+    <div class="row" style="margin-top:12px">
+      <button id="go">Write article</button>
+      <span class="muted">Runs 3 agents in order: Research, Writer, Editor. Keep this tab open.</span>
     </div>
+    <pre id="log"></pre>
   </section>
 
   <section>
-    <h2>2. Write an article now</h2>
-    <div class="row">
-      <button id="run">Run pipeline</button>
-      <span class="muted">Takes the next topic in the queue and runs all 3 agents. Can take 1-5 minutes. Keep this tab open.</span>
-    </div>
-  </section>
-
-  <section>
-    <div class="row" style="justify-content:space-between"><h2>Articles</h2><button id="refresh" class="sec">Refresh</button></div>
-    <table><thead><tr><th>Title</th><th>Words</th><th>Status</th><th></th></tr></thead><tbody id="posts"></tbody></table>
-  </section>
-
-  <section>
-    <h2>Workflows</h2>
-    <table><thead><tr><th>Status</th><th>Step</th><th>Tries</th><th>Updated</th><th>Error</th></tr></thead><tbody id="wfs"></tbody></table>
-  </section>
-
-  <section>
-    <h2>Topic queue</h2>
-    <table><thead><tr><th>Title</th><th>Source</th><th>Status</th></tr></thead><tbody id="topics"></tbody></table>
+    <h2>Articles</h2>
+    <div id="jobs"></div>
   </section>
 </main>
 
 <div id="modal"><div class="box">
   <div class="row"><strong id="m-title" style="margin-right:auto"></strong>
-    <button id="m-copy" class="sec">Copy Markdown</button><button id="m-close">Close</button></div>
+    <button id="m-copy" class="sec">Copy</button>
+    <button id="m-dl" class="sec">Download .md</button>
+    <button id="m-close">Close</button></div>
   <div class="muted" id="m-meta"></div>
   <textarea id="m-body" readonly></textarea>
 </div></div>
 
 <script>
+// ====================== Storage ======================
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { alert('Browser storage is full or blocked: ' + e.message); } }
+};
 const $ = (id) => document.getElementById(id);
-const secretEl = $('secret');
-try { secretEl.value = sessionStorage.getItem('s') || ''; } catch {}
+let settings = store.get('settings', { key: '', mock: true });
+let jobs = store.get('jobs', []);
+const save = () => store.set('jobs', jobs);
 
-function show(text, ok = true) { const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'err'; }
-async function api(path, opts = {}) {
-  const res = await fetch(path, { ...opts, headers: { 'Authorization': 'Bearer ' + secretEl.value.trim(), 'Content-Type': 'application/json' } });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
-  return data;
-}
-function cell(tr, text, cls) {
-  const td = document.createElement('td');
-  if (cls) { const s = document.createElement('span'); s.className = 'tag ' + cls; s.textContent = text; td.appendChild(s); }
-  else td.textContent = text ?? '';
-  tr.appendChild(td); return td;
-}
-function fill(tbodyId, rows, build) {
-  const tb = $(tbodyId); tb.replaceChildren();
-  if (!rows.length) { const tr = document.createElement('tr'); const td = cell(tr, 'Nothing yet'); td.className = 'muted'; td.colSpan = 5; tb.appendChild(tr); return; }
-  rows.forEach((r) => tb.appendChild(build(r)));
+$('mock').checked = settings.mock;
+$('key').value = settings.key;
+$('mock').onchange = () => { settings.mock = $('mock').checked; store.set('settings', settings); };
+$('key').onchange = () => { settings.key = $('key').value.trim(); store.set('settings', settings); };
+
+// ====================== Prompts ======================
+const today = () => new Date().toISOString().slice(0, 10);
+
+const researchSystem = () => `
+Kamu adalah Agen Riset & Analisis AI senior untuk blog teknologi Indonesia yang fokus pada AI dan AGI. Tanggal hari ini: ${today()}.
+TUGAS: Bedah satu topik AI/AGI menjadi Laporan Riset yang akurat dan kritis untuk penulis.
+ATURAN KERAS:
+1. Sumber kebenaran = MATERI SUMBER dari pengguna + pengetahuan latar yang mapan. DILARANG mengarang angka, skor benchmark, kutipan, nama, tanggal, atau URL. Jika tidak yakin, beri confidence "low".
+2. Kamu TIDAK punya akses internet. Jangan mengaku sudah mencari di web.
+3. Pisahkan: fakta terverifikasi, klaim belum diuji independen, spekulasi, dan hoaks/kesalahpahaman.
+4. Soal AGI: jangan menyiratkan AGI sudah tercapai tanpa bukti sangat kuat.
+5. Cari sudut pandang TEKNIS yang substansial (metode, data, evaluasi, keterbatasan), bukan ulang siaran pers.
+FORMAT: HANYA satu objek JSON valid, tanpa markdown fence. Bahasa Indonesia.
+SKEMA:
+{"worth_writing":true,"topic_summary":"","why_now":"",
+"key_facts":[{"claim":"","evidence":"","confidence":"high|medium|low"}],
+"technical_breakdown":[{"aspect":"","explanation":""}],
+"fact_check":[{"claim":"","verdict":"fakta|klaim_belum_terverifikasi|spekulasi|hoaks","explanation":""}],
+"agi_relevance":"","implications":{"developers":"","business":"","general_public":""},
+"limitations_and_unknowns":[""],"angles":[""],"recommended_angle":"",
+"outline":[{"h2":"","points":[""]}],
+"seo":{"primary_keyword":"","secondary_keywords":[""],"search_intent":""},
+"title_options":[""]}`.trim();
+
+const researchUser = (j) => `TOPIK: ${j.title}\n\nMATERI SUMBER DARI PENGGUNA:\n${j.source || '(tidak ada, andalkan pengetahuan mapan dan beri confidence rendah pada hal yang tidak pasti)'}\n\nBuat Laporan Riset sesuai skema. Keluarkan JSON saja.`;
+
+const writerSystem = `
+Kamu adalah tech-blogger Indonesia berpengalaman yang menulis tentang AI dan AGI. Gaya kasual-profesional: seperti menjelaskan ke teman cerdas di warung kopi, tapi berbobot.
+GAYA: Bahasa Indonesia natural, sapaan "kamu"/"kita", istilah teknis Inggris dijelaskan sekali. Kalimat bervariasi, pakai analogi. DILARANG klise seperti "Di era digital ini...".
+STRUKTUR: (1) satu H1 tidak clickbait; (2) pembuka 2-3 paragraf dengan hook konkret; (3) bagian "Intinya Dulu" 3-5 butir; (4) badan dengan beberapa H2 dan H3; (5) bagian "Fakta vs Klaim vs Hoaks" dari fact_check; (6) implikasi praktis dan keterbatasan; (7) penutup tajam + satu pertanyaan reflektif.
+ATURAN: 1400-1800 kata, minimal 1200. HANYA pakai fakta dari Laporan Riset, jangan tambah angka/kutipan/nama baru. Klaim confidence "low" wajib berbahasa hati-hati. Jangan menyatakan AGI sudah tercapai.
+OUTPUT: HANYA artikel Markdown diawali "# Judul", tanpa pengantar atau code fence.`.trim();
+
+const writerUser = (r) => `LAPORAN RISET (JSON):\n${JSON.stringify(r, null, 2)}\n\nTulis artikelnya sekarang.`;
+const expandUser = (d, n) => `Draf berikut baru ${n} kata, terlalu pendek. Kembangkan jadi minimal 1400 kata dengan memperdalam penjelasan teknis, analogi, dan implikasi, TANPA menambah fakta baru. Kembalikan artikel lengkap Markdown saja.\n\nDRAF:\n${d}`;
+
+const editorSystem = `
+Kamu adalah Editor Senior sekaligus Pakar SEO untuk blog AI/AGI berbahasa Indonesia.
+LANGKAH: (1) Keterbacaan: pecah kalimat panjang, buang kalimat kaku/terjemahan harfiah, perbaiki transisi, paragraf maks ~5 kalimat. (2) Akurasi: JANGAN menambah/mengubah fakta, angka, klaim; lunakkan yang terdengar terlalu pasti. (3) Tepat satu H1; H2/H3 berurutan. (4) SEO natural: keyword utama di H1, 100 kata pertama, minimal satu H2, dan penutup; kepadatan 1-2%, tanpa stuffing. (5) Tambahkan "## FAQ" berisi 3 tanya-jawab singkat yang jawabannya HANYA dari isi artikel. (6) meta_title maks 60 karakter; meta_description 140-160 karakter berisi keyword utama; slug huruf kecil ASCII dengan tanda hubung maks 70 karakter; 5-8 keywords, keyword utama pertama.
+FORMAT OUTPUT (persis, tanpa teks lain):
+<meta>
+{"title":"","meta_title":"","meta_description":"","slug":"","keywords":[""]}
+</meta>
+<article>
+(artikel final Markdown, diawali "# Judul")
+</article>`.trim();
+
+const editorUser = (d, seo) => `SARAN SEO DARI RISET:\n${JSON.stringify(seo ?? {}, null, 2)}\n\nDRAF ARTIKEL:\n${d}`;
+
+// ====================== LLM call ======================
+const wc = (s) => s.split(/\s+/).filter(Boolean).length;
+
+function mockLLM(model, system, user) {
+  const para = 'Ini adalah paragraf contoh untuk menguji alur sistem. Isinya bukan hasil AI sungguhan, hanya teks pengisi agar pengecekan jumlah kata, penyimpanan, dan estafet antar agen bisa diuji. ';
+  const body = Array.from({ length: 12 }, (_, i) => `## Bagian ${i + 1}\n\n${para.repeat(3)}`).join('\n\n');
+  if (model === 'deepseek-reasoner') {
+    return JSON.stringify({ worth_writing: true, topic_summary: 'Mock', why_now: 'Mock',
+      key_facts: [{ claim: 'Fakta mock', evidence: 'Mock', confidence: 'high' }],
+      technical_breakdown: [{ aspect: 'Mock', explanation: 'Mock' }],
+      fact_check: [{ claim: 'Klaim mock', verdict: 'fakta', explanation: 'Mock' }],
+      agi_relevance: 'Mock', implications: { developers: 'Mock', business: 'Mock', general_public: 'Mock' },
+      limitations_and_unknowns: ['Mock'], angles: ['A'], recommended_angle: 'A',
+      outline: [{ h2: 'Mock', points: ['Mock'] }],
+      seo: { primary_keyword: 'tes mock ai', secondary_keywords: ['mock'], search_intent: 'informasional' },
+      title_options: ['Artikel Tes Mock AI'] });
+  }
+  if (system.includes('<meta>')) {
+    const draft = user.split('DRAF ARTIKEL:\n')[1] || `# Artikel Tes Mock AI\n\n${body}`;
+    const meta = { title: 'Artikel Tes Mock AI', meta_title: 'Artikel Tes Mock AI', slug: 'artikel-tes-mock-ai',
+      meta_description: 'Artikel tes dari mode mock untuk memastikan alur tiga agen berjalan dengan benar.',
+      keywords: ['tes mock ai', 'mock'] };
+    return `<meta>\n${JSON.stringify(meta)}\n</meta>\n<article>\n${draft}\n</article>`;
+  }
+  return `# Artikel Tes Mock AI\n\n${body}`;
 }
 
-async function load() {
+async function llm({ model, system, user, temperature }) {
+  if (settings.mock) { await new Promise((r) => setTimeout(r, 600)); return mockLLM(model, system, user); }
+  if (!settings.key) throw new Error('DeepSeek API key belum diisi (atau aktifkan Test mode).');
+  const body = { model, max_tokens: 8192, stream: false,
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }] };
+  if (model === 'deepseek-chat' && temperature !== undefined) body.temperature = temperature;
+  let res;
   try {
-    const d = await api('/api/status');
-    fill('posts', d.posts, (p) => {
-      const tr = document.createElement('tr');
-      cell(tr, p.title); cell(tr, p.word_count ?? ''); cell(tr, p.status, p.status);
-      const td = document.createElement('td');
-      const v = document.createElement('button'); v.className = 'sec'; v.textContent = 'View'; v.onclick = () => view(p.id);
-      const b = document.createElement('button'); b.className = 'sec'; b.style.marginLeft = '6px';
-      const pub = p.status !== 'published'; b.textContent = pub ? 'Publish' : 'Unpublish';
-      b.onclick = () => setStatus(p.id, pub ? 'published' : 'draft');
-      td.append(v, b); tr.appendChild(td); return tr;
-    });
-    fill('wfs', d.workflows, (w) => {
-      const tr = document.createElement('tr');
-      cell(tr, w.status, w.status); cell(tr, w.current_step || ''); cell(tr, w.attempts);
-      cell(tr, new Date(w.updated_at).toLocaleString()); cell(tr, w.error_message || ''); return tr;
-    });
-    fill('topics', d.topics, (t) => {
-      const tr = document.createElement('tr');
-      cell(tr, t.title); cell(tr, t.source); cell(tr, t.status, t.status === 'failed' ? 'failed' : t.status === 'done' ? 'completed' : ''); return tr;
-    });
-    $('msg').className = '';
-  } catch (e) { show('Could not load: ' + e.message, false); }
+    res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + settings.key }, body: JSON.stringify(body) });
+  } catch (e) {
+    throw new Error('Request gagal (bisa jaringan atau diblokir browser/CORS): ' + e.message);
+  }
+  if (!res.ok) throw new Error(`DeepSeek HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const json = await res.json();
+  const choice = json.choices?.[0];
+  const text = choice?.message?.content ?? '';
+  if (!text.trim()) throw new Error('Respons kosong dari DeepSeek (finish_reason=' + choice?.finish_reason + ')');
+  if (choice.finish_reason === 'length') throw new Error('Output terpotong (terlalu panjang).');
+  return text;
 }
 
-async function view(id) {
+function extractJson(raw) {
+  const c = raw.replace(/```json|```/gi, '').trim();
+  const a = c.indexOf('{'), b = c.lastIndexOf('}');
+  if (a === -1 || b <= a) throw new Error('Output Agen 1 bukan JSON yang valid');
+  return JSON.parse(c.slice(a, b + 1));
+}
+
+const slugify = (s) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70).replace(/-+$/g, '');
+
+// ====================== Orchestrator ======================
+const log = (msg) => { const el = $('log'); el.style.display = 'block'; el.textContent += `[${new Date().toLocaleTimeString()}] ${msg}\n`; el.scrollTop = el.scrollHeight; };
+const setStatus = (j, status) => { j.status = status; save(); render(); };
+
+async function runJob(j) {
   try {
-    const { post } = await api('/api/posts?id=' + encodeURIComponent(id));
-    $('m-title').textContent = post.title;
-    $('m-meta').textContent = 'Slug: ' + post.slug + ' | Meta: ' + (post.meta_description || '') + ' | Keywords: ' + (post.keywords || []).join(', ');
-    $('m-body').value = post.content_markdown;
-    $('modal').style.display = 'flex';
-  } catch (e) { show(e.message, false); }
-}
-async function setStatus(id, status) {
-  try { await api('/api/posts', { method: 'PATCH', body: JSON.stringify({ id, status }) }); load(); }
-  catch (e) { show(e.message, false); }
+    // Agen 1
+    if (!j.research) {
+      setStatus(j, 'Researching'); log('Agent 1 (Research / deepseek-reasoner) started...');
+      const raw = await llm({ model: 'deepseek-reasoner', system: researchSystem(), user: researchUser(j) });
+      const report = extractJson(raw);
+      if (!Array.isArray(report.key_facts) || !report.key_facts.length) throw new Error('Laporan riset tidak valid: key_facts kosong');
+      j.research = report; save(); log('Agent 1 done.');
+    }
+    // Agen 2
+    if (!j.draft) {
+      setStatus(j, 'Drafting'); log('Agent 2 (Writer / deepseek-chat) started...');
+      let draft = (await llm({ model: 'deepseek-chat', system: writerSystem, user: writerUser(j.research), temperature: 0.8 })).trim();
+      if (wc(draft) < 1100) {
+        log(`Draft only ${wc(draft)} words, expanding...`);
+        draft = (await llm({ model: 'deepseek-chat', system: writerSystem, user: expandUser(draft, wc(draft)), temperature: 0.7 })).trim();
+      }
+      if (wc(draft) < 800) throw new Error(`Draf terlalu pendek (${wc(draft)} kata)`);
+      j.draft = draft; save(); log('Agent 2 done (' + wc(draft) + ' words).');
+    }
+    // Agen 3
+    if (!j.final) {
+      setStatus(j, 'Editing'); log('Agent 3 (Editor + SEO / deepseek-chat) started...');
+      const raw = await llm({ model: 'deepseek-chat', system: editorSystem, user: editorUser(j.draft, j.research.seo), temperature: 0.4 });
+      const m = raw.match(/<meta>([\s\S]*?)<\/meta>/i), a = raw.match(/<article>([\s\S]*?)<\/article>/i);
+      if (!m || !a) throw new Error('Format output Editor salah (blok <meta>/<article> tidak lengkap)');
+      const meta = extractJson(m[1]); const article = a[1].trim();
+      const title = (meta.title || article.match(/^#\s+(.+)$/m)?.[1] || j.title).trim();
+      j.final = { title, slug: slugify(meta.slug || title) || 'artikel', meta_title: (meta.meta_title || title).slice(0, 70),
+        meta_description: (meta.meta_description || '').slice(0, 170), keywords: meta.keywords || [], content: article, words: wc(article) };
+      save(); log('Agent 3 done. Article ready (' + j.final.words + ' words).');
+    }
+    j.error = null; setStatus(j, 'Completed');
+  } catch (e) {
+    j.error = e.message; setStatus(j, 'Failed'); log('FAILED: ' + e.message);
+  }
 }
 
-$('save').onclick = () => { try { sessionStorage.setItem('s', secretEl.value.trim()); } catch {} load(); };
-$('refresh').onclick = load;
+// ====================== UI ======================
+function render() {
+  const box = $('jobs'); box.replaceChildren();
+  if (!jobs.length) { box.textContent = 'No articles yet.'; box.className = 'muted'; return; }
+  box.className = '';
+  jobs.forEach((j) => {
+    const d = document.createElement('div'); d.className = 'job';
+    const top = document.createElement('div'); top.className = 'row';
+    const t = document.createElement('strong'); t.textContent = j.final?.title || j.title; t.style.marginRight = 'auto';
+    const tag = document.createElement('span'); tag.className = 'tag ' + j.status; tag.textContent = j.status;
+    top.append(t, tag);
+    const info = document.createElement('div'); info.className = 'muted';
+    info.textContent = new Date(j.created).toLocaleString() + (j.final ? ` | ${j.final.words} words` : '');
+    d.append(top, info);
+    if (j.error) { const e = document.createElement('div'); e.className = 'err'; e.textContent = j.error; d.appendChild(e); }
+    const acts = document.createElement('div'); acts.className = 'row'; acts.style.marginTop = '8px';
+    const btn = (label, fn, cls = 'sec') => { const b = document.createElement('button'); b.className = cls; b.textContent = label; b.onclick = fn; acts.appendChild(b); };
+    if (j.status === 'Completed') btn('View', () => view(j), '');
+    if (j.status === 'Failed') btn('Retry', () => { $('go').disabled = true; runJob(j).then(() => ($('go').disabled = false)); }, '');
+    btn('Delete', () => { if (confirm('Delete this article?')) { jobs = jobs.filter((x) => x !== j); save(); render(); } });
+    d.appendChild(acts); box.appendChild(d);
+  });
+}
+
+function view(j) {
+  const f = j.final;
+  $('m-title').textContent = f.title;
+  $('m-meta').textContent = `Slug: ${f.slug} | Meta title: ${f.meta_title} | Meta description: ${f.meta_description} | Keywords: ${f.keywords.join(', ')}`;
+  $('m-body').value = f.content; $('modal').style.display = 'flex';
+  $('m-dl').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([f.content], { type: 'text/markdown' }));
+    a.download = f.slug + '.md'; a.click(); URL.revokeObjectURL(a.href);
+  };
+}
 $('m-close').onclick = () => { $('modal').style.display = 'none'; };
-$('m-copy').onclick = async () => { await navigator.clipboard.writeText($('m-body').value); show('Markdown copied'); };
+$('m-copy').onclick = async () => { await navigator.clipboard.writeText($('m-body').value); $('m-copy').textContent = 'Copied!'; setTimeout(() => ($('m-copy').textContent = 'Copy'), 1500); };
 
-$('add').onclick = async () => {
-  const title = $('t-title').value.trim();
-  if (!title) return show('Please type a topic title', false);
-  try {
-    await api('/api/topics', { method: 'POST', body: JSON.stringify({ title, source_url: $('t-url').value.trim() || null, priority: 200 }) });
-    $('t-title').value = ''; $('t-url').value = ''; show('Topic added'); load();
-  } catch (e) { show(e.message, false); }
+$('go').onclick = async () => {
+  const title = $('title').value.trim();
+  if (!title) return alert('Please type a topic.');
+  const j = { id: Date.now().toString(36), title, source: $('src').value.trim(), status: 'Pending', created: Date.now(), research: null, draft: null, final: null, error: null };
+  jobs.unshift(j); save(); render();
+  $('log').textContent = ''; $('go').disabled = true; $('go').textContent = 'Working...';
+  await runJob(j);
+  $('go').disabled = false; $('go').textContent = 'Write article';
+  if (j.status === 'Completed') { $('title').value = ''; $('src').value = ''; }
 };
 
-$('run').onclick = async () => {
-  const b = $('run'); b.disabled = true; b.textContent = 'Running... please wait';
-  try {
-    const d = await api('/api/cron/run');
-    show(d.result?.message || (d.result?.ok ? 'Done! Article saved as draft: ' + d.result.slug : 'Failed: ' + d.result?.error), !!d.result?.ok);
-  } catch (e) { show('Run failed: ' + e.message + ' (if it timed out, check Workflows below; it may still be finishing)', false); }
-  b.disabled = false; b.textContent = 'Run pipeline'; load();
-};
-
-if (secretEl.value) load();
+render();
 </script>
 </body>
 </html>
