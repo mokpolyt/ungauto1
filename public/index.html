@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>AI Blog Dashboard</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2230; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --ok:#15803d; --bad:#b91c1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; margin-right:auto; }
+  main { max-width:1000px; margin:20px auto; padding:0 16px; display:grid; gap:16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+  input, textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; width:100%; }
+  button { font:inherit; padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.sec { background:#eef1f6; color:var(--text); }
+  button:disabled { opacity:.5; cursor:wait; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row > input { flex:1; min-width:160px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:500; font-size:13px; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:99px; font-size:12px; background:#eef1f6; }
+  .completed,.published { background:#dcfce7; color:var(--ok); }
+  .failed { background:#fee2e2; color:var(--bad); }
+  .muted { color:var(--muted); font-size:13px; }
+  #msg { padding:10px 14px; border-radius:8px; display:none; }
+  #msg.ok { display:block; background:#dcfce7; color:var(--ok); }
+  #msg.err { display:block; background:#fee2e2; color:var(--bad); }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; padding:16px; }
+  #modal .box { background:var(--card); border-radius:10px; width:100%; max-width:860px; max-height:90vh; display:flex; flex-direction:column; padding:16px; gap:10px; }
+  #modal textarea { flex:1; min-height:50vh; font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Blog Dashboard</h1>
+  <input id="secret" type="password" placeholder="Your CRON_SECRET" style="max-width:240px">
+  <button id="save" class="sec">Connect</button>
+</header>
+
+<main>
+  <div id="msg"></div>
+
+  <section>
+    <h2>1. Add a topic</h2>
+    <div class="row">
+      <input id="t-title" placeholder="Topic, e.g. Latest open-source reasoning models">
+      <input id="t-url" placeholder="Source URL (optional)">
+      <button id="add">Add topic</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Write an article now</h2>
+    <div class="row">
+      <button id="run">Run pipeline</button>
+      <span class="muted">Takes the next topic in the queue and runs all 3 agents. Can take 1-5 minutes. Keep this tab open.</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="row" style="justify-content:space-between"><h2>Articles</h2><button id="refresh" class="sec">Refresh</button></div>
+    <table><thead><tr><th>Title</th><th>Words</th><th>Status</th><th></th></tr></thead><tbody id="posts"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Workflows</h2>
+    <table><thead><tr><th>Status</th><th>Step</th><th>Tries</th><th>Updated</th><th>Error</th></tr></thead><tbody id="wfs"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Topic queue</h2>
+    <table><thead><tr><th>Title</th><th>Source</th><th>Status</th></tr></thead><tbody id="topics"></tbody></table>
+  </section>
+</main>
+
+<div id="modal"><div class="box">
+  <div class="row"><strong id="m-title" style="margin-right:auto"></strong>
+    <button id="m-copy" class="sec">Copy Markdown</button><button id="m-close">Close</button></div>
+  <div class="muted" id="m-meta"></div>
+  <textarea id="m-body" readonly></textarea>
+</div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const secretEl = $('secret');
+try { secretEl.value = sessionStorage.getItem('s') || ''; } catch {}
+
+function show(text, ok = true) { const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'err'; }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { 'Authorization': 'Bearer ' + secretEl.value.trim(), 'Content-Type': 'application/json' } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+  return data;
+}
+function cell(tr, text, cls) {
+  const td = document.createElement('td');
+  if (cls) { const s = document.createElement('span'); s.className = 'tag ' + cls; s.textContent = text; td.appendChild(s); }
+  else td.textContent = text ?? '';
+  tr.appendChild(td); return td;
+}
+function fill(tbodyId, rows, build) {
+  const tb = $(tbodyId); tb.replaceChildren();
+  if (!rows.length) { const tr = document.createElement('tr'); const td = cell(tr, 'Nothing yet'); td.className = 'muted'; td.colSpan = 5; tb.appendChild(tr); return; }
+  rows.forEach((r) => tb.appendChild(build(r)));
+}
+
+async function load() {
+  try {
+    const d = await api('/api/status');
+    fill('posts', d.posts, (p) => {
+      const tr = document.createElement('tr');
+      cell(tr, p.title); cell(tr, p.word_count ?? ''); cell(tr, p.status, p.status);
+      const td = document.createElement('td');
+      const v = document.createElement('button'); v.className = 'sec'; v.textContent = 'View'; v.onclick = () => view(p.id);
+      const b = document.createElement('button'); b.className = 'sec'; b.style.marginLeft = '6px';
+      const pub = p.status !== 'published'; b.textContent = pub ? 'Publish' : 'Unpublish';
+      b.onclick = () => setStatus(p.id, pub ? 'published' : 'draft');
+      td.append(v, b); tr.appendChild(td); return tr;
+    });
+    fill('wfs', d.workflows, (w) => {
+      const tr = document.createElement('tr');
+      cell(tr, w.status, w.status); cell(tr, w.current_step || ''); cell(tr, w.attempts);
+      cell(tr, new Date(w.updated_at).toLocaleString()); cell(tr, w.error_message || ''); return tr;
+    });
+    fill('topics', d.topics, (t) => {
+      const tr = document.createElement('tr');
+      cell(tr, t.title); cell(tr, t.source); cell(tr, t.status, t.status === 'failed' ? 'failed' : t.status === 'done' ? 'completed' : ''); return tr;
+    });
+    $('msg').className = '';
+  } catch (e) { show('Could not load: ' + e.message, false); }
+}
+
+async function view(id) {
+  try {
+    const { post } = await api('/api/posts?id=' + encodeURIComponent(id));
+    $('m-title').textContent = post.title;
+    $('m-meta').textContent = 'Slug: ' + post.slug + ' | Meta: ' + (post.meta_description || '') + ' | Keywords: ' + (post.keywords || []).join(', ');
+    $('m-body').value = post.content_markdown;
+    $('modal').style.display = 'flex';
+  } catch (e) { show(e.message, false); }
+}
+async function setStatus(id, status) {
+  try { await api('/api/posts', { method: 'PATCH', body: JSON.stringify({ id, status }) }); load(); }
+  catch (e) { show(e.message, false); }
+}
+
+$('save').onclick = () => { try { sessionStorage.setItem('s', secretEl.value.trim()); } catch {} load(); };
+$('refresh').onclick = load;
+$('m-close').onclick = () => { $('modal').style.display = 'none'; };
+$('m-copy').onclick = async () => { await navigator.clipboard.writeText($('m-body').value); show('Markdown copied'); };
+
+$('add').onclick = async () => {
+  const title = $('t-title').value.trim();
+  if (!title) return show('Please type a topic title', false);
+  try {
+    await api('/api/topics', { method: 'POST', body: JSON.stringify({ title, source_url: $('t-url').value.trim() || null, priority: 200 }) });
+    $('t-title').value = ''; $('t-url').value = ''; show('Topic added'); load();
+  } catch (e) { show(e.message, false); }
+};
+
+$('run').onclick = async () => {
+  const b = $('run'); b.disabled = true; b.textContent = 'Running... please wait';
+  try {
+    const d = await api('/api/cron/run');
+    show(d.result?.message || (d.result?.ok ? 'Done! Article saved as draft: ' + d.result.slug : 'Failed: ' + d.result?.error), !!d.result?.ok);
+  } catch (e) { show('Run failed: ' + e.message + ' (if it timed out, check Workflows below; it may still be finishing)', false); }
+  b.disabled = false; b.textContent = 'Run pipeline'; load();
+};
+
+if (secretEl.value) load();
+</script>
+</body>
+</html>
